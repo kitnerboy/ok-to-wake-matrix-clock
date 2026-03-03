@@ -65,9 +65,9 @@ number:
     max_value: 23
     step: 1
     optimistic: true
-    initial_value: 7
     restore_value: true
-    unit_of_measurement: "h"
+    mode: box # Превращает слайдер в поле ввода с кнопками
+    initial_value: 7
 
   - platform: template
     name: "Bedtime Hour"
@@ -76,9 +76,9 @@ number:
     max_value: 23
     step: 1
     optimistic: true
-    initial_value: 21
     restore_value: true
-    unit_of_measurement: "h"
+    mode: box # Превращает слайдер в поле ввода с кнопками
+    initial_value: 21
 
 # Получаем точное время
 time:
