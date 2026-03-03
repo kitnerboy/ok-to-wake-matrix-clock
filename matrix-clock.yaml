@@ -7,6 +7,13 @@ esp32:
   framework:
     type: esp-idf # Рекомендуется для C3
 
+# 1. Глобальные переменные должны быть ВЫШЕ всего, где они используются
+globals:
+  - id: current_tz
+    type: std::string
+    restore_value: yes
+    initial_value: '"GMT-4"'
+
 # 1. Добавляем веб-сервер (обязательно для работы интерфейса)
 web_server:
   port: 80
@@ -26,6 +33,29 @@ logger:
 # 4. Позволяет настраивать Wi-Fi через браузер по кабелю (Chrome/Edge)
 improv_serial:
 
+# Используем компонент для управления часовыми поясами через веб
+select:
+  - platform: template
+    name: "Timezone"
+    id: timezone_select
+    optimistic: true
+    restore_value: true
+    options:
+      - "GMT-3 (Moscow)"
+      - "GMT-4 (Tbilisi)"
+      - "GMT-5 (Almaty)"
+    initial_option: "GMT-4 (Tbilisi)"
+    on_value:
+      then:
+        - lambda: |-
+            // Нам нужно вырезать только "GMT-X" из всей строки "GMT-X (City)"
+            // Берем первые 5 символов строки
+            std::string raw_tz = x.substr(0, 5); 
+            
+            id(current_tz) = raw_tz;
+            setenv("TZ", raw_tz.c_str(), 1);
+            tzset();
+            ESP_LOGI("main", "Timezone updated to: %s", raw_tz.c_str());
 
 # Получаем точное время
 time:
@@ -40,6 +70,7 @@ light:
     pin: GPIO3
     num_leds: 64
     id: led_matrix
+    internal: true
     name: "Matrix Display"
     chipset: WS2812
 
