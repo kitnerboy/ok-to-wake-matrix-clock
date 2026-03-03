@@ -13,6 +13,10 @@ globals:
     type: std::string
     restore_value: yes
     initial_value: '"GMT-4"'
+  - id: display_rotation
+    type: int
+    restore_value: yes
+    initial_value: '0'
 
 # --- СЕТЬ И СИСТЕМА ---
 logger:
@@ -50,6 +54,27 @@ select:
             id(current_tz) = raw_tz;
             setenv("TZ", raw_tz.c_str(), 1);
             tzset();
+  - platform: template
+    name: "Display Rotation"
+    id: rotation_select
+    optimistic: true
+    restore_value: true
+    options:
+      - "0°"
+      - "90°"
+      - "180°"
+      - "270°"
+    initial_option: "0°"
+    on_value:
+      then:
+        - lambda: |-
+            if (x == "0°") id(display_rotation) = 0;
+            else if (x == "90°") id(display_rotation) = 90;
+            else if (x == "180°") id(display_rotation) = 180;
+            else if (x == "270°") id(display_rotation) = 270;
+
+            // Вместо id(matrix_display).update() используем:
+        - component.update: matrix_display # Этот способ работает всегда
 
 number:
   - platform: template
@@ -92,7 +117,26 @@ display:
     height: 8
     update_interval: 1s
     pixel_mapper: |-
-      return (y * 8) + x;
+      int nx = x;
+      int ny = y;
+      int rotation = id(display_rotation);
+
+      if (rotation == 90) {
+        nx = 7 - y;
+        ny = x;
+      } else if (rotation == 180) {
+        nx = 7 - x;
+        ny = 7 - y;
+      } else if (rotation == 270) {
+        nx = y;
+        ny = 7 - x;
+      }
+
+      // Если ваша матрица идет "змейкой" (проверьте после теста),
+      // логику змейки нужно накладывать ПОСЛЕ поворота координат:
+      // return (ny % 2 == 0) ? (ny * 8 + nx) : (ny * 8 + (7 - nx));
+
+      return (ny * 8) + nx; // Обычный рядный маппинг
 
     lambda: |-
       auto time = id(sntp_time).now();
@@ -136,7 +180,6 @@ display:
 
       // 4. Отрисовка часов
       if (d1 == 1) {
-        // Узкая единица
         draw_5x7(-1, d1); // Рисуем 0 или 1 максимально справа
         draw_5x7(3, d2); // Рисуем 0, 1 или 2 начиная с 3-го пикселя
       } else {
