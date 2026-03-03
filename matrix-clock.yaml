@@ -57,6 +57,29 @@ select:
             tzset();
             ESP_LOGI("main", "Timezone updated to: %s", raw_tz.c_str());
 
+number:
+  - platform: template
+    name: "Ok-to-wake Hour"
+    id: wake_hour
+    min_value: 0
+    max_value: 23
+    step: 1
+    optimistic: true
+    initial_value: 7
+    restore_value: true
+    unit_of_measurement: "h"
+
+  - platform: template
+    name: "Bedtime Hour"
+    id: bed_hour
+    min_value: 0
+    max_value: 23
+    step: 1
+    optimistic: true
+    initial_value: 21
+    restore_value: true
+    unit_of_measurement: "h"
+
 # Получаем точное время
 time:
   - platform: sntp
@@ -89,8 +112,6 @@ display:
       return (y * 8) + x;
 
     lambda: |-
-      it.fill(Color(0, 40, 0)); // Зеленый фон
-
       auto time = id(sntp_time).now();
       
       // --- ИНДИКАЦИЯ ОЖИДАНИЯ ---
@@ -103,6 +124,29 @@ display:
         }
         return; 
       }
+
+      Color background_color;
+      int current_hour = time.hour;
+      int wake = (int)id(wake_hour).state;
+      int bed = (int)id(bed_hour).state;
+
+      // Логика "Ночи": если сейчас время >= bedtime ИЛИ время < wake-up
+      // (Работает корректно даже при переходе через полночь)
+      bool is_night = false;
+      if (bed > wake) {
+          if (current_hour >= bed || current_hour < wake) is_night = true;
+      } else {
+          if (current_hour >= bed && current_hour < wake) is_night = true;
+      }
+
+      if (is_night) {
+        background_color = Color(40, 0, 0); // Тускло-красный (спать!)
+      } else {
+        background_color = Color(0, 40, 0); // Зеленый (можно вставать!)
+      }
+
+      it.fill(background_color);
+
 
       // Конвертируем в 12-часовой формат
       int h = time.hour % 12;
