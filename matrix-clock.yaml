@@ -1,0 +1,101 @@
+esphome:
+  name: matrix-clock
+  friendly_name: Matrix Clock
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf # Рекомендуется для C3
+
+# Подключаем Wi-Fi для синхронизации времени
+wifi:
+  ssid: "home-office"
+  password: "hello;kitty"
+
+# Получаем точное время
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "GET-4" # Настройте под свой регион
+
+# Настраиваем шрифт
+font:
+  - file: "fonts/Pixolletta8px.ttf" # Путь к вашему файлу шрифта
+    id: clock_font
+    size: 8
+    glyphs: "0123456789"
+
+# Настраиваем светодиоды как "свет"
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: GPIO3
+    num_leds: 64
+    id: led_matrix
+    name: "Matrix Display"
+    chipset: WS2812
+
+# Превращаем светодиоды в дисплей
+display:
+  - platform: addressable_light
+    id: matrix_display
+    addressable_light_id: led_matrix
+    width: 8
+    height: 8
+    update_interval: 1s
+    
+    # Маппинг: большинство матриц идут "змейкой". 
+    # Если цифры будут отображаться криво, этот блок нужно будет подправить.
+    pixel_mapper: |-
+      return (y * 8) + x;
+
+    lambda: |-
+      it.fill(Color(0, 40, 0)); // Зеленый фон
+
+      auto time = id(sntp_time).now();
+      if (!time.is_valid()) return;
+
+      // Конвертируем в 12-часовой формат
+      int h = time.hour % 12;
+      if (h == 0) h = 12; 
+
+      h = time.second % 13;
+
+      int d1 = h / 10; // Десятки
+      int d2 = h % 10; // Единицы
+
+      // Рисуем вторую цифру (единицы) - она всегда 5x8
+      // Смещаем её вправо (координата x=3), чтобы оставить место слева для единички
+      auto draw_5x8 = [&](int x_off, int num) {
+        static const uint8_t g[10][8] = {
+          {0xf8,0x88,0x88,0x88,0x88,0x88,0x88,0xf8}, // 0 (11111000)
+          {0x20,0x60,0x20,0x20,0x20,0x20,0x20,0x70}, // 1
+          {0xf8,0x08,0x08,0xf8,0x80,0x80,0x80,0xf8}, // 2
+          {0xf8,0x08,0x08,0xf8,0x08,0x08,0x08,0xf8}, // 3
+          {0x88,0x88,0x88,0xf8,0x08,0x08,0x08,0x08}, // 4
+          {0xf8,0x80,0x80,0xf8,0x08,0x08,0x08,0xf8}, // 5
+          {0xf8,0x80,0x80,0xf8,0x88,0x88,0x88,0xf8}, // 6
+          {0xf8,0x08,0x10,0x20,0x20,0x20,0x20,0x20}, // 7
+          {0xf8,0x88,0x88,0xf8,0x88,0x88,0x88,0xf8}, // 8
+          {0xf8,0x88,0x88,0xf8,0x08,0x08,0x08,0xf8}  // 9
+        };
+        for (int y = 0; y < 8; y++) {
+          for (int x = 0; x < 5; x++) {
+            if ((g[num][y] >> (7 - x)) & 1) it.draw_pixel_at(x_off + x, y, Color::BLACK);
+          }
+        }
+      };
+
+      if (d1 == 1) {
+        // Если час 10, 11 или 12 - рисуем узкую единицу слева и цифру справа
+        // Узкая единица (2 пикселя шириной)
+        draw_5x8(-1, d1); // Рисуем 0, 1 или 2 начиная с 3-го пикселя
+        //for (int y = 0; y < 8; y++) {
+        //   it.draw_pixel_at(0, y, Color::BLACK);
+        //   it.draw_pixel_at(1, y, Color::BLACK);
+        // }
+        draw_5x8(3, d2); // Рисуем 0, 1 или 2 начиная с 3-го пикселя
+      } else {
+        // Если час от 1 до 9 - рисуем одну цифру по центру (с отступом 1 или 2)
+        draw_5x8(1, d2);
+      }
