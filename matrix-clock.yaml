@@ -5,35 +5,33 @@ esphome:
 esp32:
   board: esp32-c3-devkitm-1
   framework:
-    type: esp-idf # Рекомендуется для C3
+    type: esp-idf
 
-# 1. Глобальные переменные должны быть ВЫШЕ всего, где они используются
+# --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
 globals:
   - id: current_tz
     type: std::string
     restore_value: yes
     initial_value: '"GMT-4"'
 
-# 1. Добавляем веб-сервер (обязательно для работы интерфейса)
+# --- СЕТЬ И СИСТЕМА ---
+logger:
+improv_serial:
+captive_portal:
+
 web_server:
   port: 80
 
-# 2. Настраиваем Wi-Fi с резервной точкой доступа
 wifi:
-  # Если не подключился за 10 секунд — запускаем AP
   ap:
     ssid: "Matrix-Clock-Setup"
-    password: "" # Можно оставить пустым для удобства
 
-# 3. Включаем сам портал
-captive_portal:
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "GET-4" # Настройте под свой регион
 
-logger:
-
-# 4. Позволяет настраивать Wi-Fi через браузер по кабелю (Chrome/Edge)
-improv_serial:
-
-# Используем компонент для управления часовыми поясами через веб
+# --- ПОЛЬЗОВАТЕЛЬСКИЙ ИНТЕРФЕЙС (WEB) ---
 select:
   - platform: template
     name: "Timezone"
@@ -48,14 +46,10 @@ select:
     on_value:
       then:
         - lambda: |-
-            // Нам нужно вырезать только "GMT-X" из всей строки "GMT-X (City)"
-            // Берем первые 5 символов строки
             std::string raw_tz = x.substr(0, 5); 
-            
             id(current_tz) = raw_tz;
             setenv("TZ", raw_tz.c_str(), 1);
             tzset();
-            ESP_LOGI("main", "Timezone updated to: %s", raw_tz.c_str());
 
 number:
   - platform: template
@@ -63,41 +57,33 @@ number:
     id: wake_hour
     min_value: 0
     max_value: 23
-    step: 1
+    mode: box
     optimistic: true
     restore_value: true
-    mode: box # Превращает слайдер в поле ввода с кнопками
     initial_value: 7
+    step: 1
 
   - platform: template
     name: "Bedtime Hour"
     id: bed_hour
     min_value: 0
     max_value: 23
-    step: 1
+    mode: box
     optimistic: true
     restore_value: true
-    mode: box # Превращает слайдер в поле ввода с кнопками
     initial_value: 21
+    step: 1
 
-# Получаем точное время
-time:
-  - platform: sntp
-    id: sntp_time
-    timezone: "GET-4" # Настройте под свой регион
-
-# Настраиваем светодиоды как "свет"
+# --- ЖЕЛЕЗО (МАТРИЦА) ---
 light:
   - platform: esp32_rmt_led_strip
-    rgb_order: GRB
+    id: led_matrix
     pin: GPIO3
     num_leds: 64
-    id: led_matrix
-    internal: true
-    name: "Matrix Display"
+    rgb_order: GRB
     chipset: WS2812
+    internal: true
 
-# Превращаем светодиоды в дисплей
 display:
   - platform: addressable_light
     id: matrix_display
@@ -105,89 +91,60 @@ display:
     width: 8
     height: 8
     update_interval: 1s
-    
-    # Маппинг: большинство матриц идут "змейкой". 
-    # Если цифры будут отображаться криво, этот блок нужно будет подправить.
     pixel_mapper: |-
       return (y * 8) + x;
 
     lambda: |-
       auto time = id(sntp_time).now();
-      
-      // --- ИНДИКАЦИЯ ОЖИДАНИЯ ---
+
+      // 1. Проверка валидности времени
       if (!time.is_valid()) {
-        // Мигающая точка в правом нижнем углу (7,7)
-        // Меняет состояние каждую секунду
-        it.fill(Color::BLACK); 
-        if ((id(matrix_display).get_update_interval() * (millis() / 1000)) % 2 == 0) {
-          it.draw_pixel_at(7, 7, Color(255, 0, 0));
-        }
-        return; 
+        it.fill(Color::BLACK);
+        if ((millis() / 500) % 2 == 0) it.draw_pixel_at(7, 7, Color(255, 0, 0));
+        return;
       }
 
-      Color background_color;
-      int current_hour = time.hour;
+      // 2. Логика Ok-to-wake (Фон)
+      int cur_h = time.hour;
       int wake = (int)id(wake_hour).state;
       int bed = (int)id(bed_hour).state;
+      bool is_night = (bed > wake) ? (cur_h >= bed || cur_h < wake) : (cur_h >= bed && cur_h < wake);
+      
+      it.fill(is_night ? Color(30, 0, 0) : Color(0, 30, 0));
 
-      // Логика "Ночи": если сейчас время >= bedtime ИЛИ время < wake-up
-      // (Работает корректно даже при переходе через полночь)
-      bool is_night = false;
-      if (bed > wake) {
-          if (current_hour >= bed || current_hour < wake) is_night = true;
-      } else {
-          if (current_hour >= bed && current_hour < wake) is_night = true;
-      }
-
-      if (is_night) {
-        background_color = Color(40, 0, 0); // Тускло-красный (спать!)
-      } else {
-        background_color = Color(0, 40, 0); // Зеленый (можно вставать!)
-      }
-
-      it.fill(background_color);
-
-
-      // Конвертируем в 12-часовой формат
+      // 3. Подготовка цифр (12ч формат)
       int h = time.hour % 12;
-      int tens_of_minutes = time.minute / 8;
+      if (h == 0) h = 12;
+      int d1 = h / 10;
+      int d2 = h % 10;
 
-      if (h == 0) h = 12; 
-
-      int d1 = h / 10; // Десятки
-      int d2 = h % 10; // Единицы
-
+      // Глифы Pixolletta 5x7
       auto draw_5x7 = [&](int x_off, int num) {
-        static const uint8_t g[10][8] = {
-          {0x70,0x88,0x88,0x88,0x88,0x88,0x70}, // 0
-          {0x20,0x60,0x20,0x20,0x20,0x20,0x70}, // 1
-          {0x70,0x88,0x08,0x30,0x40,0x80,0xf8}, // 2
-          {0x70,0x88,0x08,0x30,0x08,0x88,0x70}, // 3
-          {0x10,0x30,0x50,0x90,0xf8,0x10,0x10}, // 4
-          {0xf8,0x80,0xf0,0x08,0x08,0x88,0x70}, // 5
-          {0x30,0x40,0xf0,0x88,0x88,0x88,0x70}, // 6
-          {0xf8,0x08,0x10,0x20,0x40,0x40,0x40}, // 7
-          {0x70,0x88,0x70,0x88,0x88,0x88,0x70}, // 8
-          {0x70,0x88,0x88,0x78,0x08,0x10,0x60}  // 9
+        static const uint8_t g[10][7] = {
+          {0x70,0x88,0x88,0x88,0x88,0x88,0x70}, {0x20,0x60,0x20,0x20,0x20,0x20,0x70},
+          {0x70,0x88,0x08,0x30,0x40,0x80,0xf8}, {0x70,0x88,0x08,0x30,0x08,0x88,0x70},
+          {0x10,0x30,0x50,0x90,0xf8,0x10,0x10}, {0xf8,0x80,0xf0,0x08,0x08,0x88,0x70},
+          {0x30,0x40,0xf0,0x88,0x88,0x88,0x70}, {0xf8,0x08,0x10,0x20,0x40,0x40,0x40},
+          {0x70,0x88,0x70,0x88,0x88,0x88,0x70}, {0x70,0x88,0x88,0x78,0x08,0x10,0x60}
         };
-        for (int y = 0; y < 8; y++) {
+        for (int y = 0; y < 7; y++) {
           for (int x = 0; x < 5; x++) {
             if ((g[num][y] >> (7 - x)) & 1) it.draw_pixel_at(x_off + x, y, Color::BLACK);
           }
         }
       };
 
+      // 4. Отрисовка часов
       if (d1 == 1) {
-        // Если час 10, 11 или 12 - рисуем узкую единицу слева и цифру справа
-        // Узкая единица (2 пикселя шириной)
-        draw_5x7(-1, d1); // Рисуем 0, 1 или 2 начиная с 3-го пикселя
+        // Узкая единица
+        draw_5x7(-1, d1); // Рисуем 0 или 1 максимально справа
         draw_5x7(3, d2); // Рисуем 0, 1 или 2 начиная с 3-го пикселя
       } else {
-        // Если час от 1 до 9 - рисуем одну цифру по центру (с отступом 1 или 2)
         draw_5x7(1, d2);
       }
 
-      // 3. Рисуем полоску минут в нижней строке (y = 7)
-      for (int x = 0; x < tens_of_minutes; x++) {
+      // 5. Прогресс-бар минут (8 пикселей на 60 минут)
+      int progress = time.minute / 7.5; // 60 / 8 = 7.5
+      for (int x = 0; x <= progress; x++) {
         it.draw_pixel_at(x, 7, Color::BLACK);
       }
