@@ -7,23 +7,31 @@ esp32:
   framework:
     type: esp-idf # Рекомендуется для C3
 
-# Подключаем Wi-Fi для синхронизации времени
+# 1. Добавляем веб-сервер (обязательно для работы интерфейса)
+web_server:
+  port: 80
+
+# 2. Настраиваем Wi-Fi с резервной точкой доступа
 wifi:
-  ssid: "home-office"
-  password: "hello;kitty"
+  # Если не подключился за 10 секунд — запускаем AP
+  ap:
+    ssid: "Matrix-Clock-Setup"
+    password: "" # Можно оставить пустым для удобства
+
+# 3. Включаем сам портал
+captive_portal:
+
+logger:
+
+# 4. Позволяет настраивать Wi-Fi через браузер по кабелю (Chrome/Edge)
+improv_serial:
+
 
 # Получаем точное время
 time:
   - platform: sntp
     id: sntp_time
     timezone: "GET-4" # Настройте под свой регион
-
-# Настраиваем шрифт
-font:
-  - file: "fonts/Pixolletta8px.ttf" # Путь к вашему файлу шрифта
-    id: clock_font
-    size: 8
-    glyphs: "0123456789"
 
 # Настраиваем светодиоды как "свет"
 light:
@@ -53,7 +61,17 @@ display:
       it.fill(Color(0, 40, 0)); // Зеленый фон
 
       auto time = id(sntp_time).now();
-      if (!time.is_valid()) return;
+      
+      // --- ИНДИКАЦИЯ ОЖИДАНИЯ ---
+      if (!time.is_valid()) {
+        // Мигающая точка в правом нижнем углу (7,7)
+        // Меняет состояние каждую секунду
+        it.fill(Color::BLACK); 
+        if ((id(matrix_display).get_update_interval() * (millis() / 1000)) % 2 == 0) {
+          it.draw_pixel_at(7, 7, Color(255, 0, 0));
+        }
+        return; 
+      }
 
       // Конвертируем в 12-часовой формат
       int h = time.hour % 12;
