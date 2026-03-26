@@ -7,7 +7,7 @@ esp32:
   framework:
     type: esp-idf
 
-# --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+# --- Global variables ---
 globals:
   - id: current_tz
     type: std::string
@@ -18,13 +18,17 @@ globals:
     restore_value: yes
     initial_value: '0'
 
-# --- СЕТЬ И СИСТЕМА ---
+# --- Network and system ---
 logger:
 improv_serial:
 captive_portal:
+api:
+  reboot_timeout: 0s
+
 
 web_server:
   port: 80
+  local: true
 
 wifi:
   ap:
@@ -33,9 +37,9 @@ wifi:
 time:
   - platform: sntp
     id: sntp_time
-    timezone: "GET-4" # Настройте под свой регион
+    timezone: "GET-4" # Set for you region
 
-# --- ПОЛЬЗОВАТЕЛЬСКИЙ ИНТЕРФЕЙС (WEB) ---
+# --- UI (WEB) ---
 select:
   - platform: template
     name: "Timezone"
@@ -73,8 +77,7 @@ select:
             else if (x == "180°") id(display_rotation) = 180;
             else if (x == "270°") id(display_rotation) = 270;
 
-            // Вместо id(matrix_display).update() используем:
-        - component.update: matrix_display # Этот способ работает всегда
+        - component.update: matrix_display
 
 number:
   - platform: template
@@ -99,7 +102,7 @@ number:
     initial_value: 21
     step: 1
 
-# --- ЖЕЛЕЗО (МАТРИЦА) ---
+# --- Hardware (matrix) ---
 light:
   - platform: esp32_rmt_led_strip
     id: led_matrix
@@ -132,37 +135,36 @@ display:
         ny = 7 - x;
       }
 
-      // Если ваша матрица идет "змейкой" (проверьте после теста),
-      // логику змейки нужно накладывать ПОСЛЕ поворота координат:
+      // If matrix is snake-style
       // return (ny % 2 == 0) ? (ny * 8 + nx) : (ny * 8 + (7 - nx));
 
-      return (ny * 8) + nx; // Обычный рядный маппинг
+      return (ny * 8) + nx; // Normal mapping
 
     lambda: |-
       auto time = id(sntp_time).now();
 
-      // 1. Проверка валидности времени
+      // 1. Check whether time is valid
       if (!time.is_valid()) {
         it.fill(Color::BLACK);
         if ((millis() / 500) % 2 == 0) it.draw_pixel_at(7, 7, Color(255, 0, 0));
         return;
       }
 
-      // 2. Логика Ok-to-wake (Фон)
+      // 2. Ok-to-wake logic
       int cur_h = time.hour;
       int wake = (int)id(wake_hour).state;
       int bed = (int)id(bed_hour).state;
       bool is_night = (bed > wake) ? (cur_h >= bed || cur_h < wake) : (cur_h >= bed && cur_h < wake);
       
-      it.fill(is_night ? Color(30, 0, 0) : Color(0, 30, 0));
+      it.fill(is_night ? Color(30, 0, 0) : Color(0, 70, 0));
 
-      // 3. Подготовка цифр (12ч формат)
+      // 3. Prepare digits (12-hour format)
       int h = time.hour % 12;
       if (h == 0) h = 12;
       int d1 = h / 10;
       int d2 = h % 10;
 
-      // Глифы Pixolletta 5x7
+      // Font glyphs 5x7
       auto draw_5x7 = [&](int x_off, int num) {
         static const uint8_t g[10][7] = {
           {0x70,0x88,0x88,0x88,0x88,0x88,0x70}, {0x20,0x60,0x20,0x20,0x20,0x20,0x70},
@@ -178,16 +180,16 @@ display:
         }
       };
 
-      // 4. Отрисовка часов
+      // 4. Clock draw
       if (d1 == 1) {
-        draw_5x7(-1, d1); // Рисуем 0 или 1 максимально справа
-        draw_5x7(3, d2); // Рисуем 0, 1 или 2 начиная с 3-го пикселя
+        draw_5x7(-1, d1); // Draw 1 maximum to the left
+        draw_5x7(3, d2); // Draw second digiit starting frolm 3th pixel
       } else {
         draw_5x7(1, d2);
       }
 
-      // 5. Прогресс-бар минут (8 пикселей на 60 минут)
-      int progress = time.minute / 7.5; // 60 / 8 = 7.5
+      // 5. Progress bar (8 pixels for 60 minutes)
+      int progress = time.minute / 7.5;
       for (int x = 0; x <= progress; x++) {
         it.draw_pixel_at(x, 7, Color::BLACK);
       }
