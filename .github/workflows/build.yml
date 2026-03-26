@@ -12,24 +12,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cache ESPHome
-        uses: actions/cache@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: |
-            ~/.cache/pip
-            ~/.esphome
-          key: ${{ runner.os }}-esphome-${{ hashFiles('**/*.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-esphome-
+          python-version: '3.11'
+
+      - name: Install ESPHome
+        run: pip install esphome
 
       - name: Build Firmware
-        uses: esphome/build-action@v2
-        id: esphome-build
-        with:
-          yaml_file: matrix-clock.yaml
+        run: esphome compile matrix-clock.yaml
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: matrix-clock-firmware
-          path: ${{ steps.esphome-build.outputs.name }}
+          # Путь к скомпилированному файлу в структуре ESPHome
+          path: .esphome/build/matrix-clock/.pioenvs/matrix-clock/firmware.bin
