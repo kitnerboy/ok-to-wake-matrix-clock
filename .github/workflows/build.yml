@@ -9,19 +9,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Cache ESPHome
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ~/.esphome
-          key: esphome-cache
+          path: |
+            ~/.cache/pip
+            ~/.esphome
+          key: ${{ runner.os }}-esphome-${{ hashFiles('**/*.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-esphome-
+
       - name: Build Firmware
         uses: esphome/build-action@v2
         id: esphome-build
         with:
           yaml_file: matrix-clock.yaml
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
-          path: ${{ steps.esphome-build.outputs.name }}/firmware.bin
+          name: matrix-clock-firmware
+          path: ${{ steps.esphome-build.outputs.name }}
