@@ -34,6 +34,8 @@ wifi:
   ap:
     ssid: "Matrix-Clock-Setup"
   reboot_timeout: 0s # Не перезагружаться, если пропал Wi-Fi
+  power_save_mode: NONE  # Важно: отключает засыпание Wi-Fi
+  fast_connect: true     # Ускоряет подключение
 
 time:
   - platform: sntp
