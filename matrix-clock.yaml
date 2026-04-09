@@ -33,11 +33,13 @@ web_server:
 wifi:
   ap:
     ssid: "Matrix-Clock-Setup"
+  reboot_timeout: 0s # Не перезагружаться, если пропал Wi-Fi
 
 time:
   - platform: sntp
     id: sntp_time
     timezone: "GET-4" # Set for you region
+    update_interval: 1h # Sync every 1 hour, not every 5 minutes
 
 # --- UI (WEB) ---
 select:
@@ -54,7 +56,7 @@ select:
     on_value:
       then:
         - lambda: |-
-            std::string raw_tz = x.substr(0, 5); 
+            std::string raw_tz = x.substr(0, 5);
             id(current_tz) = raw_tz;
             setenv("TZ", raw_tz.c_str(), 1);
             tzset();
@@ -144,10 +146,17 @@ display:
       auto time = id(sntp_time).now();
 
       // 1. Check whether time is valid
-      if (!time.is_valid()) {
-        it.fill(Color::BLACK);
-        if ((millis() / 500) % 2 == 0) it.draw_pixel_at(7, 7, Color(255, 0, 0));
+      bool time_is_set = time.is_valid() || time.year > 2020;
+
+      if (!time_is_set) {
+        // Start after powerup: wait for Wi-Fi
+        it.fill(Color(0, 0, 100));
+        if ((millis() / 500) % 2 == 0) it.draw_pixel_at(0, 0, Color(200, 100, 0)); // Оранжевая точка ожидания
         return;
+      }
+
+      if (!time.is_valid()) {
+         it.draw_pixel_at(7, 0, Color(50, 0, 0)); // Крошечная красная точка - "нет связи, но время идет"
       }
 
       // 2. Ok-to-wake logic
@@ -155,7 +164,7 @@ display:
       int wake = (int)id(wake_hour).state;
       int bed = (int)id(bed_hour).state;
       bool is_night = (bed > wake) ? (cur_h >= bed || cur_h < wake) : (cur_h >= bed && cur_h < wake);
-      
+
       it.fill(is_night ? Color(30, 0, 0) : Color(0, 70, 0));
 
       // 3. Prepare digits (12-hour format)
