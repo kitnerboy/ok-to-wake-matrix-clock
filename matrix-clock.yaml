@@ -17,6 +17,14 @@ globals:
     type: int
     restore_value: yes
     initial_value: '0'
+  - id: start_corner
+    type: int
+    restore_value: yes
+    initial_value: '0' # 0: Top-Left, 1: Top-Right, 2: Bottom-Left, 3: Bottom-Right
+  - id: layout_mode
+    type: int
+    restore_value: yes
+    initial_value: '0' # 0: Rows (Line-by-line), 1: Snake (Zig-Zag)
 
 # --- Network and system ---
 logger:
@@ -82,6 +90,39 @@ select:
             else if (x == "270°") id(display_rotation) = 270;
 
         - component.update: matrix_display
+  - platform: template
+    name: "First Pixel Position"
+    id: corner_select
+    options:
+      - "Top-Left"
+      - "Top-Right"
+      - "Bottom-Left"
+      - "Bottom-Right"
+    initial_option: "Top-Left"
+    optimistic: true
+    restore_value: true
+    on_value:
+      then:
+        - lambda: |-
+            if (x == "Top-Left") id(start_corner) = 0;
+            else if (x == "Top-Right") id(start_corner) = 1;
+            else if (x == "Bottom-Left") id(start_corner) = 2;
+            else if (x == "Bottom-Right") id(start_corner) = 3;
+        - component.update: matrix_display
+
+  - platform: template
+    name: "Data Path Style"
+    id: path_select
+    options:
+      - "Rows (Straight)"
+      - "Snake (Zig-Zag)"
+    initial_option: "Rows (Straight)"
+    optimistic: true
+    restore_value: true
+    on_value:
+      then:
+        - lambda: id(layout_mode) = (x == "Snake (Zig-Zag)");
+        - component.update: matrix_display
 
 number:
   - platform: template
@@ -128,21 +169,37 @@ display:
       int ny = y;
       int rotation = id(display_rotation);
 
+      // 1. Сначала применяем логический поворот (Display Rotation в вебе)
       if (rotation == 90) {
-        nx = 7 - y;
-        ny = x;
+        nx = 7 - y; ny = x;
       } else if (rotation == 180) {
-        nx = 7 - x;
-        ny = 7 - y;
+        nx = 7 - x; ny = 7 - y;
       } else if (rotation == 270) {
-        nx = y;
-        ny = 7 - x;
+        nx = y; ny = 7 - x;
       }
 
-      // If matrix is snake-style
-      // return (ny % 2 == 0) ? (ny * 8 + nx) : (ny * 8 + (7 - nx));
+      // 2. Рассчитываем физические координаты в зависимости от выбранного угла
+      int px = nx;
+      int py = ny;
 
-      return (ny * 8) + nx; // Normal mapping
+      switch (id(start_corner)) {
+        case 1: // Top-Right
+          px = 7 - nx; py = ny; break;
+        case 2: // Bottom-Left
+          px = nx; py = 7 - ny; break;
+        case 3: // Bottom-Right
+          px = 7 - nx; py = 7 - ny; break;
+      }
+
+      // 3. Применяем стиль пути (Rows или Snake)
+      // Если змейка, то каждая нечетная строка физической матрицы инвертируется
+      if (id(layout_mode) == 1 && py % 2 != 0) {
+        return (py * 8) + (7 - px);
+      }
+
+      return (py * 8) + px;
+
+
 
     lambda: |-
       auto time = id(sntp_time).now();
